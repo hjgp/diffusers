@@ -993,7 +993,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                         control_model_input,
                         t,
                         encoder_hidden_states=controlnet_prompt_embeds,
-                        controlnet_cond=image[0],
+                        controlnet_cond=image[0] * 3,
                         conditioning_scale=controlnet_conditioning_scale,
                         guess_mode=guess_mode,
                         return_dict=False,
