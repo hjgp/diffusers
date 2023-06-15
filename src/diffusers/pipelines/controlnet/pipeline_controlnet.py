@@ -160,7 +160,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
             controlnet_origin = controlnet[0]
             controlnet = MultiControlNetModel(controlnet)
         else:
-            controlnet_origin=None
+            controlnet_origin=controlnet
 
         self.register_modules(
             vae=vae,
@@ -878,7 +878,19 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
             height, width = image.shape[-2:]
         elif isinstance(controlnet, MultiControlNetModel):
             images = []
-
+            
+            image_origin = self.prepare_image(
+                image=image[0],
+                width=width,
+                height=height,
+                batch_size=batch_size * num_images_per_prompt,
+                num_images_per_prompt=num_images_per_prompt,
+                device=device,
+                dtype=controlnet_origin.dtype,
+                do_classifier_free_guidance=do_classifier_free_guidance,
+                guess_mode=guess_mode_origin,
+            )
+            
             for image_ in image:
                 image_ = self.prepare_image(
                     image=image_,
@@ -1002,25 +1014,12 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                     else:
                         control_model_input = latent_model_input
                         controlnet_prompt_embeds = prompt_embeds
-                    ####################################################
-                    image = self.prepare_image(
-                        image=image[0],
-                        width=width,
-                        height=height,
-                        batch_size=batch_size,
-                        num_images_per_prompt=1,
-                        device=device,
-                        dtype=controlnet_origin.dtype,
-                        do_classifier_free_guidance=do_classifier_free_guidance,
-                        guess_mode=guess_mode_origin,
-                    )
-                    height, width = image.shape[-2:]
-                    ####################################################
+
                     down_block_res_samples, mid_block_res_sample = self.controlnet_origin(
                         control_model_input,
                         t,
                         encoder_hidden_states=controlnet_prompt_embeds,
-                        controlnet_cond=image,
+                        controlnet_cond=image_origin,
                         conditioning_scale=controlnet_conditioning_scale[0],
                         guess_mode=guess_mode_origin,
                         return_dict=False,
