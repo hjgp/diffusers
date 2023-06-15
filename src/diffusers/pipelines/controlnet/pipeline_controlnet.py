@@ -839,7 +839,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         )
 
         global_pool_conditions_origin = (
-            controlnet.config.global_pool_conditions
+            controlnet_origin.config.global_pool_conditions
         )
 
         
