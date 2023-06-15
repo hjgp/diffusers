@@ -159,6 +159,8 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         if isinstance(controlnet, (list, tuple)):
             controlnet_origin = controlnet[0]
             controlnet = MultiControlNetModel(controlnet)
+        else:
+            controlnet_origin=None
 
         self.register_modules(
             vae=vae,
@@ -824,7 +826,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         do_classifier_free_guidance = guidance_scale > 1.0
 
         controlnet = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
-        controlnet_origin = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
+        controlnet_origin = self.controlnet_origin._orig_mod if is_compiled_module(self.controlnet_origin) else self.controlnet_origin
 
         if isinstance(controlnet, MultiControlNetModel) and isinstance(controlnet_conditioning_scale, float):
             controlnet_conditioning_scale_origin = controlnet_conditioning_scale
@@ -1005,10 +1007,10 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                         image=image[0],
                         width=width,
                         height=height,
-                        batch_size=batch_size * num_images_per_prompt,
-                        num_images_per_prompt=num_images_per_prompt,
+                        batch_size=batch_size,
+                        num_images_per_prompt=1,
                         device=device,
-                        dtype=controlnet.dtype,
+                        dtype=controlnet_origin.dtype,
                         do_classifier_free_guidance=do_classifier_free_guidance,
                         guess_mode=guess_mode_origin,
                     )
