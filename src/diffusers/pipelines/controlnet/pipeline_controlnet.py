@@ -157,7 +157,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
             )
 
         if isinstance(controlnet, (list, tuple)):
-            controlnet_origin = controlnet
+            controlnet_origin = controlnet[0]
             controlnet = MultiControlNetModel(controlnet)
 
         self.register_modules(
@@ -166,6 +166,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
             tokenizer=tokenizer,
             unet=unet,
             controlnet=controlnet,
+            controlnet_origin=controlnet_origin,
             scheduler=scheduler,
             safety_checker=safety_checker,
             feature_extractor=feature_extractor,
