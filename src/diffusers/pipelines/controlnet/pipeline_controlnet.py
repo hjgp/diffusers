@@ -709,6 +709,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         controlnet_conditioning_scale: Union[float, List[float]] = 1.0,
         guess_mode: bool = False,
+        jun_mode: bool = False,
     ):
         r"""
         Function invoked when calling the pipeline for generation.
@@ -907,62 +908,275 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         # 8. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
         with self.progress_bar(total=num_inference_steps) as progress_bar:
-            for i, t in enumerate(timesteps):
-                # expand the latents if we are doing classifier free guidance
-                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-                latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+            if jun_mode:
+                total_len = len(timesteps)
+                # 0% ~ 20%
+                for i, t in enumerate(timesteps[:int(total_len*0.2)]):
+                    real_index = i 
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                # controlnet(s) inference
-                if guess_mode and do_classifier_free_guidance:
-                    # Infer ControlNet only for the conditional batch.
-                    control_model_input = latents
-                    control_model_input = self.scheduler.scale_model_input(control_model_input, t)
-                    controlnet_prompt_embeds = prompt_embeds.chunk(2)[1]
-                else:
-                    control_model_input = latent_model_input
-                    controlnet_prompt_embeds = prompt_embeds
+                    # controlnet(s) inference
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infer ControlNet only for the conditional batch.
+                        control_model_input = latents
+                        control_model_input = self.scheduler.scale_model_input(control_model_input, t)
+                        controlnet_prompt_embeds = prompt_embeds.chunk(2)[1]
+                    else:
+                        control_model_input = latent_model_input
+                        controlnet_prompt_embeds = prompt_embeds
 
-                down_block_res_samples, mid_block_res_sample = self.controlnet(
-                    control_model_input,
-                    t,
-                    encoder_hidden_states=controlnet_prompt_embeds,
-                    controlnet_cond=image,
-                    conditioning_scale=controlnet_conditioning_scale,
-                    guess_mode=guess_mode,
-                    return_dict=False,
-                )
+                    down_block_res_samples, mid_block_res_sample = self.controlnet(
+                        control_model_input,
+                        t,
+                        encoder_hidden_states=controlnet_prompt_embeds,
+                        controlnet_cond=image,
+                        conditioning_scale=controlnet_conditioning_scale,
+                        guess_mode=guess_mode,
+                        return_dict=False,
+                    )
 
-                if guess_mode and do_classifier_free_guidance:
-                    # Infered ControlNet only for the conditional batch.
-                    # To apply the output of ControlNet to both the unconditional and conditional batches,
-                    # add 0 to the unconditional batch to keep it unchanged.
-                    down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
-                    mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infered ControlNet only for the conditional batch.
+                        # To apply the output of ControlNet to both the unconditional and conditional batches,
+                        # add 0 to the unconditional batch to keep it unchanged.
+                        down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
+                        mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
 
-                # predict the noise residual
-                noise_pred = self.unet(
-                    latent_model_input,
-                    t,
-                    encoder_hidden_states=prompt_embeds,
-                    cross_attention_kwargs=cross_attention_kwargs,
-                    down_block_additional_residuals=down_block_res_samples,
-                    mid_block_additional_residual=mid_block_res_sample,
-                    return_dict=False,
-                )[0]
+                    # predict the noise residual
+                    noise_pred = self.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=prompt_embeds,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                        down_block_additional_residuals=down_block_res_samples,
+                        mid_block_additional_residual=mid_block_res_sample,
+                        return_dict=False,
+                    )[0]
 
-                # perform guidance
-                if do_classifier_free_guidance:
-                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                    # perform guidance
+                    if do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
 
-                # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+                    # compute the previous noisy sample x_t -> x_t-1
+                    latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
 
-                # call the callback, if provided
-                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-                    progress_bar.update()
-                    if callback is not None and i % callback_steps == 0:
-                        callback(i, t, latents)
+                    # call the callback, if provided
+                    if real_index == len(timesteps) - 1 or ((real_index + 1) > num_warmup_steps and (real_index + 1) % self.scheduler.order == 0):
+                        progress_bar.update()
+                        if callback is not None and real_index % callback_steps == 0:
+                            callback(real_index, t, latents)
+
+                # 20% ~ 50%
+                for i, t in enumerate(timesteps[int(total_len*0.2):int(total_len*0.5)]):
+                    real_index = i + int(total_len*0.2)
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+                    # controlnet(s) inference
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infer ControlNet only for the conditional batch.
+                        control_model_input = latents
+                        control_model_input = self.scheduler.scale_model_input(control_model_input, t)
+                        controlnet_prompt_embeds = prompt_embeds.chunk(2)[1]
+                    else:
+                        control_model_input = latent_model_input
+                        controlnet_prompt_embeds = prompt_embeds
+
+                    down_block_res_samples, mid_block_res_sample = self.controlnet(
+                        control_model_input,
+                        t,
+                        encoder_hidden_states=controlnet_prompt_embeds,
+                        controlnet_cond=image[0],
+                        conditioning_scale=controlnet_conditioning_scale[0],
+                        guess_mode=guess_mode,
+                        return_dict=False,
+                    )
+
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infered ControlNet only for the conditional batch.
+                        # To apply the output of ControlNet to both the unconditional and conditional batches,
+                        # add 0 to the unconditional batch to keep it unchanged.
+                        down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
+                        mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
+
+                    # predict the noise residual
+                    noise_pred = self.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=prompt_embeds,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                        down_block_additional_residuals=down_block_res_samples,
+                        mid_block_additional_residual=mid_block_res_sample,
+                        return_dict=False,
+                    )[0]
+
+                    # perform guidance
+                    if do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                    # compute the previous noisy sample x_t -> x_t-1
+                    latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+
+                    # call the callback, if provided
+                    if real_index == len(timesteps) - 1 or ((real_index + 1) > num_warmup_steps and (real_index + 1) % self.scheduler.order == 0):
+                        progress_bar.update()
+                        if callback is not None and real_index % callback_steps == 0:
+                            callback(real_index, t, latents)
+
+
+                # 50% ~ 100%
+                for i, t in enumerate(timesteps[int(total_len*0.5):]):
+                    real_index = i + int(total_len*0.5)
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+                    # predict the noise residual
+                    noise_pred = self.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=prompt_embeds,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                        return_dict=False,
+                    )[0]
+
+                    # perform guidance
+                    if do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                    # if do_classifier_free_guidance and guidance_rescale > 0.0:
+                    #     # Based on 3.4. in https://arxiv.org/pdf/2305.08891.pdf
+                    #     noise_pred = rescale_noise_cfg(noise_pred, noise_pred_text, guidance_rescale=guidance_rescale)
+
+                    # compute the previous noisy sample x_t -> x_t-1
+                    latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+
+                    # call the callback, if provided
+                    if real_index == len(timesteps) - 1 or ((real_index + 1) > num_warmup_steps and (real_index + 1) % self.scheduler.order == 0):
+                        progress_bar.update()
+                        if callback is not None and real_index % callback_steps == 0:
+                            callback(real_index, t, latents)
+
+
+                for i, t in enumerate(timesteps):
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+                    # controlnet(s) inference
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infer ControlNet only for the conditional batch.
+                        control_model_input = latents
+                        control_model_input = self.scheduler.scale_model_input(control_model_input, t)
+                        controlnet_prompt_embeds = prompt_embeds.chunk(2)[1]
+                    else:
+                        control_model_input = latent_model_input
+                        controlnet_prompt_embeds = prompt_embeds
+
+                    down_block_res_samples, mid_block_res_sample = self.controlnet(
+                        control_model_input,
+                        t,
+                        encoder_hidden_states=controlnet_prompt_embeds,
+                        controlnet_cond=image,
+                        conditioning_scale=controlnet_conditioning_scale,
+                        guess_mode=guess_mode,
+                        return_dict=False,
+                    )
+
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infered ControlNet only for the conditional batch.
+                        # To apply the output of ControlNet to both the unconditional and conditional batches,
+                        # add 0 to the unconditional batch to keep it unchanged.
+                        down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
+                        mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
+
+                    # predict the noise residual
+                    noise_pred = self.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=prompt_embeds,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                        down_block_additional_residuals=down_block_res_samples,
+                        mid_block_additional_residual=mid_block_res_sample,
+                        return_dict=False,
+                    )[0]
+
+                    # perform guidance
+                    if do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                    # compute the previous noisy sample x_t -> x_t-1
+                    latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+
+                    # call the callback, if provided
+                    if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                        progress_bar.update()
+                        if callback is not None and i % callback_steps == 0:
+                            callback(i, t, latents)
+            else:
+                for i, t in enumerate(timesteps):
+                    # expand the latents if we are doing classifier free guidance
+                    latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+                    latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+
+                    # controlnet(s) inference
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infer ControlNet only for the conditional batch.
+                        control_model_input = latents
+                        control_model_input = self.scheduler.scale_model_input(control_model_input, t)
+                        controlnet_prompt_embeds = prompt_embeds.chunk(2)[1]
+                    else:
+                        control_model_input = latent_model_input
+                        controlnet_prompt_embeds = prompt_embeds
+
+                    down_block_res_samples, mid_block_res_sample = self.controlnet(
+                        control_model_input,
+                        t,
+                        encoder_hidden_states=controlnet_prompt_embeds,
+                        controlnet_cond=image,
+                        conditioning_scale=controlnet_conditioning_scale,
+                        guess_mode=guess_mode,
+                        return_dict=False,
+                    )
+
+                    if guess_mode and do_classifier_free_guidance:
+                        # Infered ControlNet only for the conditional batch.
+                        # To apply the output of ControlNet to both the unconditional and conditional batches,
+                        # add 0 to the unconditional batch to keep it unchanged.
+                        down_block_res_samples = [torch.cat([torch.zeros_like(d), d]) for d in down_block_res_samples]
+                        mid_block_res_sample = torch.cat([torch.zeros_like(mid_block_res_sample), mid_block_res_sample])
+
+                    # predict the noise residual
+                    noise_pred = self.unet(
+                        latent_model_input,
+                        t,
+                        encoder_hidden_states=prompt_embeds,
+                        cross_attention_kwargs=cross_attention_kwargs,
+                        down_block_additional_residuals=down_block_res_samples,
+                        mid_block_additional_residual=mid_block_res_sample,
+                        return_dict=False,
+                    )[0]
+
+                    # perform guidance
+                    if do_classifier_free_guidance:
+                        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                        noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+                    # compute the previous noisy sample x_t -> x_t-1
+                    latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+
+                    # call the callback, if provided
+                    if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                        progress_bar.update()
+                        if callback is not None and i % callback_steps == 0:
+                            callback(i, t, latents)
 
         # If we do sequential model offloading, let's offload unet and controlnet
         # manually for max memory savings
