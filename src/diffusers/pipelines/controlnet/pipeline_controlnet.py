@@ -844,8 +844,8 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
 
         
         
-        guess_mode = guess_mode or global_pool_conditions
-        guess_mode_origin = guess_mode or global_pool_conditions_origin
+        guess_mode = False
+        guess_mode_origin = False
 
         # 3. Encode input prompt
         text_encoder_lora_scale = (
