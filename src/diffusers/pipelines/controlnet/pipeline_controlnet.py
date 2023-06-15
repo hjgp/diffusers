@@ -157,6 +157,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
             )
 
         if isinstance(controlnet, (list, tuple)):
+            controlnet_origin = controlnet
             controlnet = MultiControlNetModel(controlnet)
 
         self.register_modules(
@@ -822,8 +823,10 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         do_classifier_free_guidance = guidance_scale > 1.0
 
         controlnet = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
+        controlnet_origin = self.controlnet_origin._orig_mod if is_compiled_module(self.controlnet_origin) else self.controlnet_origin
 
         if isinstance(controlnet, MultiControlNetModel) and isinstance(controlnet_conditioning_scale, float):
+            controlnet_conditioning_scale_origin = controlnet_conditioning_scale
             controlnet_conditioning_scale = [controlnet_conditioning_scale] * len(controlnet.nets)
 
         global_pool_conditions = (
@@ -831,7 +834,15 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
             if isinstance(controlnet, ControlNetModel)
             else controlnet.nets[0].config.global_pool_conditions
         )
+
+        global_pool_conditions_origin = (
+            controlnet.nets[0].config.global_pool_conditions
+        )
+
+        
+        
         guess_mode = guess_mode or global_pool_conditions
+        guess_mode_origin = guess_mode or global_pool_conditions_origin
 
         # 3. Encode input prompt
         text_encoder_lora_scale = (
@@ -988,14 +999,27 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                     else:
                         control_model_input = latent_model_input
                         controlnet_prompt_embeds = prompt_embeds
-
-                    down_block_res_samples, mid_block_res_sample = self.controlnet(
+                    ####################################################
+                    image = self.prepare_image(
+                        image=image[0],
+                        width=width,
+                        height=height,
+                        batch_size=batch_size * num_images_per_prompt,
+                        num_images_per_prompt=num_images_per_prompt,
+                        device=device,
+                        dtype=controlnet.dtype,
+                        do_classifier_free_guidance=do_classifier_free_guidance,
+                        guess_mode=guess_mode_origin,
+                    )
+                    height, width = image.shape[-2:]
+                    ####################################################
+                    down_block_res_samples, mid_block_res_sample = self.controlnet_origin(
                         control_model_input,
                         t,
                         encoder_hidden_states=controlnet_prompt_embeds,
-                        controlnet_cond=image[0] * 3,
-                        conditioning_scale=controlnet_conditioning_scale,
-                        guess_mode=guess_mode,
+                        controlnet_cond=image,
+                        conditioning_scale=controlnet_conditioning_scale[0],
+                        guess_mode=guess_mode_origin,
                         return_dict=False,
                     )
 
