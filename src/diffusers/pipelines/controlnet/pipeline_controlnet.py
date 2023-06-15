@@ -823,7 +823,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
         do_classifier_free_guidance = guidance_scale > 1.0
 
         controlnet = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
-        controlnet_origin = self.controlnet_origin._orig_mod if is_compiled_module(self.controlnet_origin) else self.controlnet_origin
+        controlnet_origin = self.controlnet._orig_mod if is_compiled_module(self.controlnet) else self.controlnet
 
         if isinstance(controlnet, MultiControlNetModel) and isinstance(controlnet_conditioning_scale, float):
             controlnet_conditioning_scale_origin = controlnet_conditioning_scale
