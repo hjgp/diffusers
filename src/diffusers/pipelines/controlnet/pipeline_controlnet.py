@@ -991,7 +991,7 @@ class StableDiffusionControlNetPipeline(DiffusionPipeline, TextualInversionLoade
                         t,
                         encoder_hidden_states=controlnet_prompt_embeds,
                         controlnet_cond=image[0],
-                        conditioning_scale=controlnet_conditioning_scale[0],
+                        conditioning_scale=controlnet_conditioning_scale,
                         guess_mode=guess_mode,
                         return_dict=False,
                     )
